@@ -83,7 +83,7 @@ validate_locus(\%options,\$usage_message);
 
 ######## Check for required dependencies
 my $samtools_which = install_check('samtools',$usage_message);
-my $samtools_version = samtools_version1_check($usage_message);
+my $samtools_version = 1.9; #samtools_version1_check($usage_message);
 my $bowtie_which;
 my $gzip_which;
 if(exists($options{'readfile'})) {
@@ -312,7 +312,8 @@ sub get_ShortStack_options {
 	       'cram',
 	       'mmap=s',
 	       'bowtie_m=s',
-	       'ranmax=s'
+	       'ranmax=s',
+           'samtools_cores=i'
 	);
     
     # If no options were passed, just print help and walk away
@@ -777,7 +778,7 @@ sub fai {
 	chomp $time;
 	log_it($$options{'logfile'}, "\n$time");
 	log_it($$options{'logfile'}, "Expected fai file $expected_fai not found. Attempting to create using samtools faidx ...");
-	system "samtools faidx $$options{'genomefile'}";
+	system "samtools faidx $$options{'genomefile'} -@ $$options{'samtools_cores'} ";
 	if(-r $expected_fai) {
 	    log_it($$options{'logfile'}, "\tSuccessful");
 	    return $expected_fai;
@@ -1961,7 +1962,7 @@ sub decider {
 	my $tempfile = "$path" . "$file" . "_temp";
 	# open streams
 	open(IN, "gzip -d -c $rs_file |");
-	open(OUT, "| samtools view -u - | samtools sort -O bam -T $tempfile 2> /dev/null > $bam_file");
+	open(OUT, "| samtools view -@ $$options{'samtools_cores'}  -u - | samtools sort -@ $$options{'samtools_cores'}  -O bam -T $tempfile 2> /dev/null > $bam_file");
 	# go line by line
 	my $last_read = 'NULL';
 	my $this_read;
@@ -2282,7 +2283,7 @@ sub pick_mmap {
 sub merge_bams {
     my($bams,$options) = @_;  ## references to array, hash
     my $merged_bam = "$$options{'outdir'}" . "\/" . "merged_alignments.bam";
-    my $merge_command = "samtools merge $merged_bam";
+    my $merge_command = "samtools merge $merged_bam -@ $$options{'samtools_cores'}";
     my $bam;
     foreach $bam (@$bams) {
 	$merge_command .= " $bam";
@@ -2312,7 +2313,7 @@ sub bam2cram {
     my($bam,$options) = @_; ## references to scalar, hash
     my $cramfile = $$bam;
     $cramfile =~ s/\.bam$/\.cram/;
-    my $bam2cram_command = "samtools view -C -T $$options{'genomefile'} $$bam > $cramfile";
+    my $bam2cram_command = "samtools view -C -T $$options{'genomefile'} -@ $$options{'samtools_cores'} $$bam > $cramfile";
     my $time = `date`;
     chomp $time;
     log_it($$options{'logfile'}, "\n$time");
@@ -2340,7 +2341,7 @@ sub ensure_aln_idx {
 	    chomp $time;
 	    log_it($$options{'logfile'}, "\n$time");
 	    log_it($$options{'logfile'}, "Required bamfile index $expected_idx not found. Attempting to create with samtools index.");
-	    system "samtools index $$options{'bamfile'}";
+	    system "samtools index $$options{'bamfile'} -@ $$options{'samtools_cores'} ";
 	    unless (-r $expected_idx) {
 		log_it($$options{'logfile'}, "FAILED - Aborting.");
 		exit;
@@ -2353,7 +2354,7 @@ sub ensure_aln_idx {
 	    chomp $time;
 	    log_it($$options{'logfile'}, "\n$time");
 	    log_it($$options{'logfile'}, "Required cramfile index $expected_idx not found. Attempting to create with samtools index.");
-	    system "samtools index $$options{'cramfile'}";
+	    system "samtools index $$options{'cramfile'} -@ $$options{'samtools_cores'}";
 	    unless (-r $expected_idx) {
 		log_it($$options{'logfile'}, "FAILED - Aborting.");
 		exit;
@@ -2398,9 +2399,9 @@ sub denovo {
     
     # OK, let's do this
     if(exists($$options{'bamfile'})) {
-	open(SAM, "samtools view -F 4 $$options{'bamfile'} |");
+	open(SAM, "samtools view -F 4 $$options{'bamfile'} -@ $$options{'samtools_cores'} |");
     } elsif (exists($$options{'cramfile'})) {
-	open(SAM, "samtools view -F 4 $$options{'cramfile'} |");
+	open(SAM, "samtools view -F 4 $$options{'cramfile'} -@ $$options{'samtools_cores'} |");
     } else {
 	log_it($$options{'logfile'}, "FATAL: Failed to open alignment file in sub-routine denovo.");
     }
@@ -3003,9 +3004,9 @@ sub get_read_groups {
     my %RG = ();
     $RG{'main'} = 1;
     if(exists($$options{'bamfile'})) {
-	open(HEAD, "samtools view -H $$options{'bamfile'} |");
+	open(HEAD, "samtools view -H $$options{'bamfile'} -@ $$options{'samtools_cores'} |");
     } elsif (exists($$options{'cramfile'})) {
-	open(HEAD, "samtools view -H $$options{'cramfile'} |");
+	open(HEAD, "samtools view -H $$options{'cramfile'} -@ $$options{'samtools_cores'} |");
     }
     my $i = 1;
     while (<HEAD>) {
@@ -3206,9 +3207,9 @@ sub countmode {
 	    
 	    # open SAM
 	    if(exists($$options{'bamfile'})) {
-		open(SAM, "samtools view $$options{'bamfile'} $count_loci[$cidx] |");
+		open(SAM, "samtools view $$options{'bamfile'} -@ $$options{'samtools_cores'} $count_loci[$cidx] |");
 	    } elsif (exists($$options{'bamfile'})) {
-		open(SAM, "samtools view $$options{'cramfile'} $count_loci[$cidx] |");
+		open(SAM, "samtools view $$options{'cramfile'} -@ $$options{'samtools_cores'} $count_loci[$cidx] |");
 	    }
 	    
 	    # read SAM, inputting data. Comparing to method denovo, any line here is in an 'open' cluster
@@ -3305,9 +3306,9 @@ sub get_chr_lens {
     my($options) = @_;  ## reference to hash
     my %hash = ();
     if(exists($$options{'bamfile'})) {
-	open(HEAD, "samtools view -H $$options{'bamfile'} |");
+	open(HEAD, "samtools view -H $$options{'bamfile'} -@ $$options{'samtools_cores'} |");
     } elsif (exists($$options{'cramfile'})) {
-	open(HEAD, "samtools view -H $$options{'cramfile'} |");
+	open(HEAD, "samtools view -H $$options{'cramfile'} -@ $$options{'samtools_cores'} |");
     }
     my $chr;
     my $len;
